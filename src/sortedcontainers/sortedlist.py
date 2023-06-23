@@ -13,6 +13,8 @@ Sorted list implementations:
 * :class:`SortedKeyList`
 
 """
+
+
 # pylint: disable=too-many-lines
 from __future__ import print_function
 
@@ -25,6 +27,7 @@ from math import log
 from operator import add, eq, ne, gt, ge, lt, le, iadd
 from textwrap import dedent
 
+# 垫片
 ###############################################################################
 # BEGIN Python 2/3 Shims
 ###############################################################################
@@ -40,19 +43,21 @@ from sys import hexversion
 if hexversion < 0x03000000:
     from itertools import imap as map  # pylint: disable=redefined-builtin
     from itertools import izip as zip  # pylint: disable=redefined-builtin
+
     try:
         from thread import get_ident
     except ImportError:
         from dummy_thread import get_ident
 else:
     from functools import reduce
+
     try:
         from _thread import get_ident
     except ImportError:
         from _dummy_thread import get_ident
 
 
-def recursive_repr(fillvalue='...'):
+def recursive_repr(fillvalue="..."):
     "Decorator to make a repr function return fillvalue for a recursive call."
     # pylint: disable=missing-docstring
     # Copied from reprlib in Python 3
@@ -77,19 +82,15 @@ def recursive_repr(fillvalue='...'):
 
     return decorating_function
 
+
 ###############################################################################
 # END Python 2/3 Shims
 ###############################################################################
 
 
-class SortedList(MutableSequence):
-    """Sorted list is a sorted mutable sequence.
-
-    Sorted list values are maintained in sorted order.
-
-    Sorted list values must be comparable. The total ordering of values must
-    not change while they are stored in the sorted list.
-
+class SortedList:
+    """
+    !增
     Methods for adding values:
 
     * :func:`SortedList.add`
@@ -99,6 +100,7 @@ class SortedList(MutableSequence):
     * :func:`SortedList.__mul__`
     * :func:`SortedList.__imul__`
 
+    !删
     Methods for removing values:
 
     * :func:`SortedList.clear`
@@ -107,6 +109,7 @@ class SortedList(MutableSequence):
     * :func:`SortedList.pop`
     * :func:`SortedList.__delitem__`
 
+    !查
     Methods for looking up values:
 
     * :func:`SortedList.bisect_left`
@@ -116,6 +119,7 @@ class SortedList(MutableSequence):
     * :func:`SortedList.__contains__`
     * :func:`SortedList.__getitem__`
 
+    !遍历
     Methods for iterating values:
 
     * :func:`SortedList.irange`
@@ -123,6 +127,7 @@ class SortedList(MutableSequence):
     * :func:`SortedList.__iter__`
     * :func:`SortedList.__reversed__`
 
+    !其他
     Methods for miscellany:
 
     * :func:`SortedList.copy`
@@ -130,116 +135,44 @@ class SortedList(MutableSequence):
     * :func:`SortedList.__repr__`
     * :func:`SortedList._check`
     * :func:`SortedList._reset`
-
-    Sorted lists use lexicographical ordering semantics when compared to other
-    sequences.
-
-    Some methods of mutable sequences are not supported and will raise
-    not-implemented error.
-
     """
+
     DEFAULT_LOAD_FACTOR = 1000
 
-
     def __init__(self, iterable=None, key=None):
-        """Initialize sorted list instance.
-
-        Optional `iterable` argument provides an initial iterable of values to
-        initialize the sorted list.
-
-        Runtime complexity: `O(n*log(n))`
-
-        >>> sl = SortedList()
-        >>> sl
-        SortedList([])
-        >>> sl = SortedList([3, 1, 2, 5, 4])
-        >>> sl
-        SortedList([1, 2, 3, 4, 5])
-
-        :param iterable: initial values (optional)
-
-        """
         assert key is None
         self._len = 0
         self._load = self.DEFAULT_LOAD_FACTOR
-        self._lists = []
-        self._maxes = []
-        self._index = []
-        self._offset = 0
+
+        self._lists = []  # 块
+        self._maxes = []  # 每个块的最大值
+        self._index = []  # 维护每个块的长度的线段树
+        self._offset = 0  # 线段树第一个叶子结点的索引
 
         if iterable is not None:
             self._update(iterable)
 
-
     def __new__(cls, iterable=None, key=None):
-        """Create new sorted list or sorted-key list instance.
-
-        Optional `key`-function argument will return an instance of subtype
-        :class:`SortedKeyList`.
-
-        >>> sl = SortedList()
-        >>> isinstance(sl, SortedList)
-        True
-        >>> sl = SortedList(key=lambda x: -x)
-        >>> isinstance(sl, SortedList)
-        True
-        >>> isinstance(sl, SortedKeyList)
-        True
-
-        :param iterable: initial values (optional)
-        :param key: function used to extract comparison key (optional)
-        :return: sorted list or sorted-key list instance
-
-        """
-        # pylint: disable=unused-argument
+        """工厂函数."""
         if key is None:
             return object.__new__(cls)
-        else:
-            if cls is SortedList:
-                return object.__new__(SortedKeyList)
-            else:
-                raise TypeError('inherit SortedKeyList for key argument')
+        if cls is SortedList:
+            return object.__new__(SortedKeyList)
+        raise TypeError("inherit SortedKeyList for key argument")
 
-
-    @property
-    def key(self):  # pylint: disable=useless-return
-        """Function used to extract comparison key from values.
-
-        Sorted list compares values directly so the key function is none.
-
-        """
-        return None
-
-
-    def _reset(self, load):
-        """Reset sorted list load factor.
-
-        The `load` specifies the load-factor of the list. The default load
-        factor of 1000 works well for lists from tens to tens-of-millions of
-        values. Good practice is to use a value that is the cube root of the
-        list size. With billions of elements, the best load factor depends on
-        your usage. It's best to leave the load factor at the default until you
-        start benchmarking.
-
-        See :doc:`implementation` and :doc:`performance-scale` for more
-        information.
-
-        Runtime complexity: `O(n)`
-
-        :param int load: load-factor for sorted list sublists
-
+    def _reset(self, load: int) -> None:
+        """重置负载因子.
+        比较好的设定为,list大小的立方根.
+        默认为1000.可以支持到1e7到1e8级别的数据.
         """
         values = reduce(iadd, self._lists, [])
         self._clear()
         self._load = load
         self._update(values)
 
-
     def clear(self):
-        """Remove all values from sorted list.
-
+        """
         Runtime complexity: `O(n)`
-
         """
         self._len = 0
         del self._lists[:]
@@ -249,23 +182,8 @@ class SortedList(MutableSequence):
 
     _clear = clear
 
-
     def add(self, value):
-        """Add `value` to sorted list.
-
-        Runtime complexity: `O(log(n))` -- approximate.
-
-        >>> sl = SortedList()
-        >>> sl.add(3)
-        >>> sl.add(1)
-        >>> sl.add(2)
-        >>> sl
-        SortedList([1, 2, 3])
-
-        :param value: value to add to sorted list
-
-        """
-        _lists = self._lists
+        _lists = self._lists  # 缓存
         _maxes = self._maxes
 
         if _maxes:
@@ -285,7 +203,7 @@ class SortedList(MutableSequence):
 
         self._len += 1
 
-
+    # 非常关键的函数，动态调整
     def _expand(self, pos):
         """Split sublists with length greater than double the load-factor.
 
@@ -312,6 +230,8 @@ class SortedList(MutableSequence):
 
             del _index[:]
         else:
+            # 如果子列表长度小于等于两倍的负载因子：更新索引中对应节点的计数值，表示增加了一个元素
+            # seg.update(pos,1)
             if _index:
                 child = self._offset + pos
                 while child:
@@ -319,19 +239,9 @@ class SortedList(MutableSequence):
                     child = (child - 1) >> 1
                 _index[0] += 1
 
-
     def update(self, iterable):
-        """Update sorted list by adding all values from `iterable`.
-
+        """批量添加元素.
         Runtime complexity: `O(k*log(n))` -- approximate.
-
-        >>> sl = SortedList()
-        >>> sl.update([3, 1, 2])
-        >>> sl
-        SortedList([1, 2, 3])
-
-        :param iterable: iterable of values to add
-
         """
         _lists = self._lists
         _maxes = self._maxes
@@ -350,132 +260,52 @@ class SortedList(MutableSequence):
                 return
 
         _load = self._load
-        _lists.extend(values[pos:(pos + _load)]
-                      for pos in range(0, len(values), _load))
+        _lists.extend(values[pos : (pos + _load)] for pos in range(0, len(values), _load))
         _maxes.extend(sublist[-1] for sublist in _lists)
         self._len = len(values)
         del self._index[:]
 
     _update = update
 
-
     def __contains__(self, value):
-        """Return true if `value` is an element of the sorted list.
-
-        ``sl.__contains__(value)`` <==> ``value in sl``
-
-        Runtime complexity: `O(log(n))`
-
-        >>> sl = SortedList([1, 2, 3, 4, 5])
-        >>> 3 in sl
-        True
-
-        :param value: search for value in sorted list
-        :return: true if `value` in sorted list
-
-        """
         _maxes = self._maxes
-
         if not _maxes:
             return False
-
         pos = bisect_left(_maxes, value)
-
         if pos == len(_maxes):
             return False
-
         _lists = self._lists
         idx = bisect_left(_lists[pos], value)
-
         return _lists[pos][idx] == value
 
-
     def discard(self, value):
-        """Remove `value` from sorted list if it is a member.
-
-        If `value` is not a member, do nothing.
-
-        Runtime complexity: `O(log(n))` -- approximate.
-
-        >>> sl = SortedList([1, 2, 3, 4, 5])
-        >>> sl.discard(5)
-        >>> sl.discard(0)
-        >>> sl == [1, 2, 3, 4]
-        True
-
-        :param value: `value` to discard from sorted list
-
-        """
         _maxes = self._maxes
-
         if not _maxes:
             return
-
         pos = bisect_left(_maxes, value)
-
         if pos == len(_maxes):
             return
-
         _lists = self._lists
         idx = bisect_left(_lists[pos], value)
-
         if _lists[pos][idx] == value:
             self._delete(pos, idx)
 
-
     def remove(self, value):
-        """Remove `value` from sorted list; `value` must be a member.
-
-        If `value` is not a member, raise ValueError.
-
-        Runtime complexity: `O(log(n))` -- approximate.
-
-        >>> sl = SortedList([1, 2, 3, 4, 5])
-        >>> sl.remove(5)
-        >>> sl == [1, 2, 3, 4]
-        True
-        >>> sl.remove(0)
-        Traceback (most recent call last):
-          ...
-        ValueError: 0 not in list
-
-        :param value: `value` to remove from sorted list
-        :raises ValueError: if `value` is not in sorted list
-
-        """
         _maxes = self._maxes
-
         if not _maxes:
-            raise ValueError('{0!r} not in list'.format(value))
-
+            raise ValueError("{0!r} not in list".format(value))
         pos = bisect_left(_maxes, value)
-
         if pos == len(_maxes):
-            raise ValueError('{0!r} not in list'.format(value))
-
+            raise ValueError("{0!r} not in list".format(value))
         _lists = self._lists
         idx = bisect_left(_lists[pos], value)
-
         if _lists[pos][idx] == value:
             self._delete(pos, idx)
         else:
-            raise ValueError('{0!r} not in list'.format(value))
-
+            raise ValueError("{0!r} not in list".format(value))
 
     def _delete(self, pos, idx):
-        """Delete value at the given `(pos, idx)`.
-
-        Combines lists that are less than half the load level.
-
-        Updates the index when the sublist length is more than half the load
-        level. This requires decrementing the nodes in a traversal from the
-        leaf node to the root. For an example traversal see
-        ``SortedList._loc``.
-
-        :param int pos: lists index
-        :param int idx: sublist index
-
-        """
+        """收缩重构."""
         _lists = self._lists
         _maxes = self._maxes
         _index = self._index
@@ -489,7 +319,7 @@ class SortedList(MutableSequence):
 
         if len_lists_pos > (self._load >> 1):
             _maxes[pos] = _lists_pos[-1]
-
+            # !seg.update(pos,-1)
             if _index:
                 child = self._offset + pos
                 while child > 0:
@@ -515,7 +345,6 @@ class SortedList(MutableSequence):
             del _lists[pos]
             del _maxes[pos]
             del _index[:]
-
 
     def _loc(self, pos, idx):
         """Convert an index pair (lists index, sublist index) into a single
@@ -584,7 +413,6 @@ class SortedList(MutableSequence):
         # Iterate until reaching the root of the index tree at pos = 0.
 
         while pos:
-
             # Right-child nodes are at odd indices. At such indices
             # account the total below the left child node.
 
@@ -596,7 +424,6 @@ class SortedList(MutableSequence):
             pos = (pos - 1) >> 1
 
         return total + idx
-
 
     def _pos(self, idx):
         """Convert an index into an index pair (lists index, sublist index)
@@ -662,9 +489,9 @@ class SortedList(MutableSequence):
             idx += self._len
 
             if idx < 0:
-                raise IndexError('list index out of range')
+                raise IndexError("list index out of range")
         elif idx >= self._len:
-            raise IndexError('list index out of range')
+            raise IndexError("list index out of range")
 
         if idx < len(self._lists[0]):
             return 0, idx
@@ -691,9 +518,8 @@ class SortedList(MutableSequence):
 
         return (pos - self._offset, idx)
 
-
     def _build_index(self):
-        """Build a positional index for indexing the sorted list.
+        """建树.
 
         Indexes are represented as binary trees in a dense array notation
         similar to a binary heap.
@@ -760,27 +586,9 @@ class SortedList(MutableSequence):
         reduce(iadd, reversed(tree), self._index)
         self._offset = size * 2 - 1
 
-
     def __delitem__(self, index):
-        """Remove value at `index` from sorted list.
-
-        ``sl.__delitem__(index)`` <==> ``del sl[index]``
-
-        Supports slicing.
-
-        Runtime complexity: `O(log(n))` -- approximate.
-
-        >>> sl = SortedList('abcde')
-        >>> del sl[2]
-        >>> sl
-        SortedList(['a', 'b', 'd', 'e'])
-        >>> del sl[:2]
-        >>> sl
-        SortedList(['d', 'e'])
-
-        :param index: integer or slice for indexing
-        :raises IndexError: if index out of range
-
+        """
+        删除元素,支持区间删除/单点删除.
         """
         if isinstance(index, slice):
             start, stop, step = index.indices(self._len)
@@ -811,7 +619,6 @@ class SortedList(MutableSequence):
         else:
             pos, idx = self._pos(index)
             self._delete(pos, idx)
-
 
     def __getitem__(self, index):
         """Lookup value at `index` in sorted list.
@@ -864,7 +671,7 @@ class SortedList(MutableSequence):
                     stop_pos, stop_idx = self._pos(stop)
 
                 prefix = _lists[start_pos][start_idx:]
-                middle = _lists[(start_pos + 1):stop_pos]
+                middle = _lists[(start_pos + 1) : stop_pos]
                 result = reduce(iadd, middle, prefix)
                 result += _lists[stop_pos][:stop_idx]
 
@@ -888,7 +695,7 @@ class SortedList(MutableSequence):
                 elif index == -1:
                     return _lists[-1][-1]
             else:
-                raise IndexError('list index out of range')
+                raise IndexError("list index out of range")
 
             if 0 <= index < len(_lists[0]):
                 return _lists[0][index]
@@ -903,7 +710,6 @@ class SortedList(MutableSequence):
 
     _getitem = __getitem__
 
-
     def __setitem__(self, index, value):
         """Raise not-implemented error.
 
@@ -913,9 +719,8 @@ class SortedList(MutableSequence):
             ``sl.add(value)`` instead
 
         """
-        message = 'use ``del sl[index]`` and ``sl.add(value)`` instead'
+        message = "use ``del sl[index]`` and ``sl.add(value)`` instead"
         raise NotImplementedError(message)
-
 
     def __iter__(self):
         """Return an iterator over the sorted list.
@@ -928,7 +733,6 @@ class SortedList(MutableSequence):
         """
         return chain.from_iterable(self._lists)
 
-
     def __reversed__(self):
         """Return a reverse iterator over the sorted list.
 
@@ -939,7 +743,6 @@ class SortedList(MutableSequence):
 
         """
         return chain.from_iterable(map(reversed, reversed(self._lists)))
-
 
     def reverse(self):
         """Raise not-implemented error.
@@ -956,8 +759,7 @@ class SortedList(MutableSequence):
         :raises NotImplementedError: use ``reversed(sl)`` instead
 
         """
-        raise NotImplementedError('use ``reversed(sl)`` instead')
-
+        raise NotImplementedError("use ``reversed(sl)`` instead")
 
     def islice(self, start=None, stop=None, reverse=False):
         """Return an iterator that slices sorted list from `start` to `stop`.
@@ -1003,7 +805,6 @@ class SortedList(MutableSequence):
             max_pos, max_idx = _pos(stop)
 
         return self._islice(min_pos, min_idx, max_pos, max_idx, reverse)
-
 
     def _islice(self, min_pos, min_idx, max_pos, max_idx, reverse):
         """Return an iterator that slices sorted list using two index pairs.
@@ -1068,9 +869,7 @@ class SortedList(MutableSequence):
             map(_lists[max_pos].__getitem__, max_indices),
         )
 
-
-    def irange(self, minimum=None, maximum=None, inclusive=(True, True),
-               reverse=False):
+    def irange(self, minimum=None, maximum=None, inclusive=(True, True), reverse=False):
         """Create an iterator of values between `minimum` and `maximum`.
 
         Both `minimum` and `maximum` default to `None` which is automatically
@@ -1151,7 +950,6 @@ class SortedList(MutableSequence):
 
         return self._islice(min_pos, min_idx, max_pos, max_idx, reverse)
 
-
     def __len__(self):
         """Return the size of the sorted list.
 
@@ -1161,7 +959,6 @@ class SortedList(MutableSequence):
 
         """
         return self._len
-
 
     def bisect_left(self, value):
         """Return an index to insert `value` in the sorted list.
@@ -1193,7 +990,6 @@ class SortedList(MutableSequence):
 
         idx = bisect_left(self._lists[pos], value)
         return self._loc(pos, idx)
-
 
     def bisect_right(self, value):
         """Return an index to insert `value` in the sorted list.
@@ -1228,7 +1024,6 @@ class SortedList(MutableSequence):
 
     bisect = bisect_right
     _bisect_right = bisect_right
-
 
     def count(self, value):
         """Return number of occurrences of `value` in the sorted list.
@@ -1269,7 +1064,6 @@ class SortedList(MutableSequence):
         left = self._loc(pos_left, idx_left)
         return right - left
 
-
     def copy(self):
         """Return a shallow copy of the sorted list.
 
@@ -1282,7 +1076,6 @@ class SortedList(MutableSequence):
 
     __copy__ = copy
 
-
     def append(self, value):
         """Raise not-implemented error.
 
@@ -1292,8 +1085,7 @@ class SortedList(MutableSequence):
         :raises NotImplementedError: use ``sl.add(value)`` instead
 
         """
-        raise NotImplementedError('use ``sl.add(value)`` instead')
-
+        raise NotImplementedError("use ``sl.add(value)`` instead")
 
     def extend(self, values):
         """Raise not-implemented error.
@@ -1304,8 +1096,7 @@ class SortedList(MutableSequence):
         :raises NotImplementedError: use ``sl.update(values)`` instead
 
         """
-        raise NotImplementedError('use ``sl.update(values)`` instead')
-
+        raise NotImplementedError("use ``sl.update(values)`` instead")
 
     def insert(self, index, value):
         """Raise not-implemented error.
@@ -1313,8 +1104,7 @@ class SortedList(MutableSequence):
         :raises NotImplementedError: use ``sl.add(value)`` instead
 
         """
-        raise NotImplementedError('use ``sl.add(value)`` instead')
-
+        raise NotImplementedError("use ``sl.add(value)`` instead")
 
     def pop(self, index=-1):
         """Remove and return value at `index` in sorted list.
@@ -1340,7 +1130,7 @@ class SortedList(MutableSequence):
 
         """
         if not self._len:
-            raise IndexError('pop index out of range')
+            raise IndexError("pop index out of range")
 
         _lists = self._lists
 
@@ -1375,7 +1165,6 @@ class SortedList(MutableSequence):
         self._delete(pos, idx)
         return val
 
-
     def index(self, value, start=None, stop=None):
         """Return first index of value in sorted list.
 
@@ -1407,7 +1196,7 @@ class SortedList(MutableSequence):
         _len = self._len
 
         if not _len:
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         if start is None:
             start = 0
@@ -1424,19 +1213,19 @@ class SortedList(MutableSequence):
             stop = _len
 
         if stop <= start:
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         _maxes = self._maxes
         pos_left = bisect_left(_maxes, value)
 
         if pos_left == len(_maxes):
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         _lists = self._lists
         idx_left = bisect_left(_lists[pos_left], value)
 
         if _lists[pos_left][idx_left] != value:
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         stop -= 1
         left = self._loc(pos_left, idx_left)
@@ -1450,8 +1239,7 @@ class SortedList(MutableSequence):
             if start <= right:
                 return start
 
-        raise ValueError('{0!r} is not in list'.format(value))
-
+        raise ValueError("{0!r} is not in list".format(value))
 
     def __add__(self, other):
         """Return new sorted list containing all values in both sequences.
@@ -1477,7 +1265,6 @@ class SortedList(MutableSequence):
 
     __radd__ = __add__
 
-
     def __iadd__(self, other):
         """Update sorted list with values from `other`.
 
@@ -1499,7 +1286,6 @@ class SortedList(MutableSequence):
         self._update(other)
         return self
 
-
     def __mul__(self, num):
         """Return new sorted list with `num` shallow copies of values.
 
@@ -1519,7 +1305,6 @@ class SortedList(MutableSequence):
         return self.__class__(values)
 
     __rmul__ = __mul__
-
 
     def __imul__(self, num):
         """Update the sorted list with `num` shallow copies of values.
@@ -1542,9 +1327,9 @@ class SortedList(MutableSequence):
         self._update(values)
         return self
 
-
     def __make_cmp(seq_op, symbol, doc):
         "Make comparator method."
+
         def comparer(self, other):
             "Compare method for sorted list and sequence."
             if not isinstance(other, Sequence):
@@ -1566,7 +1351,7 @@ class SortedList(MutableSequence):
             return seq_op(self_len, len_other)
 
         seq_op_name = seq_op.__name__
-        comparer.__name__ = '__{0}__'.format(seq_op_name)
+        comparer.__name__ = "__{0}__".format(seq_op_name)
         doc_str = """Return true if and only if sorted list is {0} `other`.
 
         ``sl.__{1}__(other)`` <==> ``sl {2} other``
@@ -1582,20 +1367,17 @@ class SortedList(MutableSequence):
         comparer.__doc__ = dedent(doc_str.format(doc, seq_op_name, symbol))
         return comparer
 
-
-    __eq__ = __make_cmp(eq, '==', 'equal to')
-    __ne__ = __make_cmp(ne, '!=', 'not equal to')
-    __lt__ = __make_cmp(lt, '<', 'less than')
-    __gt__ = __make_cmp(gt, '>', 'greater than')
-    __le__ = __make_cmp(le, '<=', 'less than or equal to')
-    __ge__ = __make_cmp(ge, '>=', 'greater than or equal to')
+    __eq__ = __make_cmp(eq, "==", "equal to")
+    __ne__ = __make_cmp(ne, "!=", "not equal to")
+    __lt__ = __make_cmp(lt, "<", "less than")
+    __gt__ = __make_cmp(gt, ">", "greater than")
+    __le__ = __make_cmp(le, "<=", "less than or equal to")
+    __ge__ = __make_cmp(ge, ">=", "greater than or equal to")
     __make_cmp = staticmethod(__make_cmp)
-
 
     def __reduce__(self):
         values = reduce(iadd, self._lists, [])
         return (type(self), (values,))
-
 
     @recursive_repr()
     def __repr__(self):
@@ -1606,8 +1388,7 @@ class SortedList(MutableSequence):
         :return: string representation
 
         """
-        return '{0}({1!r})'.format(type(self).__name__, list(self))
-
+        return "{0}({1!r})".format(type(self).__name__, list(self))
 
     def _check(self):
         """Check invariants of sorted list.
@@ -1671,15 +1452,15 @@ class SortedList(MutableSequence):
                         assert child_sum == self._index[pos]
         except:
             traceback.print_exc(file=sys.stdout)
-            print('len', self._len)
-            print('load', self._load)
-            print('offset', self._offset)
-            print('len_index', len(self._index))
-            print('index', self._index)
-            print('len_maxes', len(self._maxes))
-            print('maxes', self._maxes)
-            print('len_lists', len(self._lists))
-            print('lists', self._lists)
+            print("len", self._len)
+            print("load", self._load)
+            print("offset", self._offset)
+            print("len_index", len(self._index))
+            print("index", self._index)
+            print("len_maxes", len(self._maxes))
+            print("maxes", self._maxes)
+            print("len_lists", len(self._lists))
+            print("lists", self._lists)
             raise
 
 
@@ -1713,6 +1494,7 @@ class SortedKeyList(SortedList):
     -1
 
     """
+
     def __init__(self, iterable=None, key=identity):
         """Initialize sorted-key list instance.
 
@@ -1749,16 +1531,13 @@ class SortedKeyList(SortedList):
         if iterable is not None:
             self._update(iterable)
 
-
     def __new__(cls, iterable=None, key=identity):
         return object.__new__(cls)
-
 
     @property
     def key(self):
         "Function used to extract comparison key from values."
         return self._key
-
 
     def clear(self):
         """Remove all values from sorted-key list.
@@ -1773,7 +1552,6 @@ class SortedKeyList(SortedList):
         del self._index[:]
 
     _clear = clear
-
 
     def add(self, value):
         """Add `value` to sorted-key list.
@@ -1818,7 +1596,6 @@ class SortedKeyList(SortedList):
 
         self._len += 1
 
-
     def _expand(self, pos):
         """Split sublists with length greater than double the load-factor.
 
@@ -1857,7 +1634,6 @@ class SortedKeyList(SortedList):
                     child = (child - 1) >> 1
                 _index[0] += 1
 
-
     def update(self, iterable):
         """Update sorted-key list by adding all values from `iterable`.
 
@@ -1890,15 +1666,13 @@ class SortedKeyList(SortedList):
                 return
 
         _load = self._load
-        _lists.extend(values[pos:(pos + _load)]
-                      for pos in range(0, len(values), _load))
+        _lists.extend(values[pos : (pos + _load)] for pos in range(0, len(values), _load))
         _keys.extend(list(map(self._key, _list)) for _list in _lists)
         _maxes.extend(sublist[-1] for sublist in _keys)
         self._len = len(values)
         del self._index[:]
 
     _update = update
-
 
     def __contains__(self, value):
         """Return true if `value` is an element of the sorted-key list.
@@ -1948,7 +1722,6 @@ class SortedKeyList(SortedList):
                 len_sublist = len(_keys[pos])
                 idx = 0
 
-
     def discard(self, value):
         """Remove `value` from sorted-key list if it is a member.
 
@@ -1997,7 +1770,6 @@ class SortedKeyList(SortedList):
                 len_sublist = len(_keys[pos])
                 idx = 0
 
-
     def remove(self, value):
         """Remove `value` from sorted-key list; `value` must be a member.
 
@@ -2022,13 +1794,13 @@ class SortedKeyList(SortedList):
         _maxes = self._maxes
 
         if not _maxes:
-            raise ValueError('{0!r} not in list'.format(value))
+            raise ValueError("{0!r} not in list".format(value))
 
         key = self._key(value)
         pos = bisect_left(_maxes, key)
 
         if pos == len(_maxes):
-            raise ValueError('{0!r} not in list'.format(value))
+            raise ValueError("{0!r} not in list".format(value))
 
         _lists = self._lists
         _keys = self._keys
@@ -2038,7 +1810,7 @@ class SortedKeyList(SortedList):
 
         while True:
             if _keys[pos][idx] != key:
-                raise ValueError('{0!r} not in list'.format(value))
+                raise ValueError("{0!r} not in list".format(value))
             if _lists[pos][idx] == value:
                 self._delete(pos, idx)
                 return
@@ -2046,10 +1818,9 @@ class SortedKeyList(SortedList):
             if idx == len_sublist:
                 pos += 1
                 if pos == len_keys:
-                    raise ValueError('{0!r} not in list'.format(value))
+                    raise ValueError("{0!r} not in list".format(value))
                 len_sublist = len(_keys[pos])
                 idx = 0
-
 
     def _delete(self, pos, idx):
         """Delete value at the given `(pos, idx)`.
@@ -2110,9 +1881,7 @@ class SortedKeyList(SortedList):
             del _maxes[pos]
             del _index[:]
 
-
-    def irange(self, minimum=None, maximum=None, inclusive=(True, True),
-               reverse=False):
+    def irange(self, minimum=None, maximum=None, inclusive=(True, True), reverse=False):
         """Create an iterator of values between `minimum` and `maximum`.
 
         Both `minimum` and `maximum` default to `None` which is automatically
@@ -2142,13 +1911,13 @@ class SortedKeyList(SortedList):
         min_key = self._key(minimum) if minimum is not None else None
         max_key = self._key(maximum) if maximum is not None else None
         return self._irange_key(
-            min_key=min_key, max_key=max_key,
-            inclusive=inclusive, reverse=reverse,
+            min_key=min_key,
+            max_key=max_key,
+            inclusive=inclusive,
+            reverse=reverse,
         )
 
-
-    def irange_key(self, min_key=None, max_key=None, inclusive=(True, True),
-                   reverse=False):
+    def irange_key(self, min_key=None, max_key=None, inclusive=(True, True), reverse=False):
         """Create an iterator of values between `min_key` and `max_key`.
 
         Both `min_key` and `max_key` default to `None` which is automatically
@@ -2232,7 +2001,6 @@ class SortedKeyList(SortedList):
 
     _irange_key = irange_key
 
-
     def bisect_left(self, value):
         """Return an index to insert `value` in the sorted-key list.
 
@@ -2253,7 +2021,6 @@ class SortedKeyList(SortedList):
 
         """
         return self._bisect_key_left(self._key(value))
-
 
     def bisect_right(self, value):
         """Return an index to insert `value` in the sorted-key list.
@@ -2277,7 +2044,6 @@ class SortedKeyList(SortedList):
         return self._bisect_key_right(self._key(value))
 
     bisect = bisect_right
-
 
     def bisect_key_left(self, key):
         """Return an index to insert `key` in the sorted-key list.
@@ -2314,7 +2080,6 @@ class SortedKeyList(SortedList):
 
     _bisect_key_left = bisect_key_left
 
-
     def bisect_key_right(self, key):
         """Return an index to insert `key` in the sorted-key list.
 
@@ -2350,7 +2115,6 @@ class SortedKeyList(SortedList):
 
     bisect_key = bisect_key_right
     _bisect_key_right = bisect_key_right
-
 
     def count(self, value):
         """Return number of occurrences of `value` in the sorted-key list.
@@ -2397,7 +2161,6 @@ class SortedKeyList(SortedList):
                 len_sublist = len(_keys[pos])
                 idx = 0
 
-
     def copy(self):
         """Return a shallow copy of the sorted-key list.
 
@@ -2409,7 +2172,6 @@ class SortedKeyList(SortedList):
         return self.__class__(self, key=self._key)
 
     __copy__ = copy
-
 
     def index(self, value, start=None, stop=None):
         """Return first index of value in sorted-key list.
@@ -2443,7 +2205,7 @@ class SortedKeyList(SortedList):
         _len = self._len
 
         if not _len:
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         if start is None:
             start = 0
@@ -2460,14 +2222,14 @@ class SortedKeyList(SortedList):
             stop = _len
 
         if stop <= start:
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         _maxes = self._maxes
         key = self._key(value)
         pos = bisect_left(_maxes, key)
 
         if pos == len(_maxes):
-            raise ValueError('{0!r} is not in list'.format(value))
+            raise ValueError("{0!r} is not in list".format(value))
 
         stop -= 1
         _lists = self._lists
@@ -2478,7 +2240,7 @@ class SortedKeyList(SortedList):
 
         while True:
             if _keys[pos][idx] != key:
-                raise ValueError('{0!r} is not in list'.format(value))
+                raise ValueError("{0!r} is not in list".format(value))
             if _lists[pos][idx] == value:
                 loc = self._loc(pos, idx)
                 if start <= loc <= stop:
@@ -2489,12 +2251,11 @@ class SortedKeyList(SortedList):
             if idx == len_sublist:
                 pos += 1
                 if pos == len_keys:
-                    raise ValueError('{0!r} is not in list'.format(value))
+                    raise ValueError("{0!r} is not in list".format(value))
                 len_sublist = len(_keys[pos])
                 idx = 0
 
-        raise ValueError('{0!r} is not in list'.format(value))
-
+        raise ValueError("{0!r} is not in list".format(value))
 
     def __add__(self, other):
         """Return new sorted-key list containing all values in both sequences.
@@ -2521,7 +2282,6 @@ class SortedKeyList(SortedList):
 
     __radd__ = __add__
 
-
     def __mul__(self, num):
         """Return new sorted-key list with `num` shallow copies of values.
 
@@ -2541,11 +2301,9 @@ class SortedKeyList(SortedList):
         values = reduce(iadd, self._lists, []) * num
         return self.__class__(values, key=self._key)
 
-
     def __reduce__(self):
         values = reduce(iadd, self._lists, [])
         return (type(self), (values, self.key))
-
 
     @recursive_repr()
     def __repr__(self):
@@ -2557,8 +2315,7 @@ class SortedKeyList(SortedList):
 
         """
         type_name = type(self).__name__
-        return '{0}({1!r}, key={2!r})'.format(type_name, list(self), self._key)
-
+        return "{0}({1!r}, key={2!r})".format(type_name, list(self), self._key)
 
     def _check(self):
         """Check invariants of sorted-key list.
@@ -2629,17 +2386,17 @@ class SortedKeyList(SortedList):
                         assert child_sum == self._index[pos]
         except:
             traceback.print_exc(file=sys.stdout)
-            print('len', self._len)
-            print('load', self._load)
-            print('offset', self._offset)
-            print('len_index', len(self._index))
-            print('index', self._index)
-            print('len_maxes', len(self._maxes))
-            print('maxes', self._maxes)
-            print('len_keys', len(self._keys))
-            print('keys', self._keys)
-            print('len_lists', len(self._lists))
-            print('lists', self._lists)
+            print("len", self._len)
+            print("load", self._load)
+            print("offset", self._offset)
+            print("len_index", len(self._index))
+            print("index", self._index)
+            print("len_maxes", len(self._maxes))
+            print("maxes", self._maxes)
+            print("len_keys", len(self._keys))
+            print("keys", self._keys)
+            print("len_lists", len(self._lists))
+            print("lists", self._lists)
             raise
 
 
