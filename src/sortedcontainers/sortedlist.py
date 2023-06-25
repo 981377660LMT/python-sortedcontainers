@@ -189,14 +189,14 @@ class SortedList:
         if _maxes:
             pos = bisect_right(_maxes, value)
 
-            if pos == len(_maxes):
+            if pos == len(_maxes):  # 末尾插入
                 pos -= 1
                 _lists[pos].append(value)
                 _maxes[pos] = value
             else:
                 insort(_lists[pos], value)
 
-            self._expand(pos)
+            self._expand(pos)  # 扩张块
         else:
             _lists.append([value])
             _maxes.append(value)
@@ -217,7 +217,7 @@ class SortedList:
         _lists = self._lists
         _index = self._index
 
-        if len(_lists[pos]) > (_load << 1):
+        if len(_lists[pos]) > (_load << 1):  # 如果子列表长度大于两倍的负载因子：分割子列表
             _maxes = self._maxes
 
             _lists_pos = _lists[pos]
@@ -228,7 +228,7 @@ class SortedList:
             _lists.insert(pos + 1, half)
             _maxes.insert(pos + 1, half[-1])
 
-            del _index[:]
+            del _index[:]  # 重置线段树
         else:
             # 如果子列表长度小于等于两倍的负载因子：更新索引中对应节点的计数值，表示增加了一个元素
             # seg.update(pos,1)
